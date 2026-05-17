@@ -1,3 +1,5 @@
+const STORAGE_KEY = 'cinehome-continue-watching-v1';
+
 const state = {
   movies: [],
   favorites: [],
@@ -7,7 +9,11 @@ const state = {
   search: '',
   theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
   selectedMovie: null,
-  hls: null
+  hls: null,
+  progressMap: loadProgressMap(),
+  restoringProgressFor: null,
+  progressSaveTimer: null,
+  suppressProgressWrite: false
 };
 
 const els = {
@@ -19,6 +25,9 @@ const els = {
   rankingEmpty: document.getElementById('rankingEmpty'),
   favoritesEmpty: document.getElementById('favoritesEmpty'),
   wishlistEmpty: document.getElementById('wishlistEmpty'),
+  continueWatchingList: document.getElementById('continueWatchingList'),
+  continueWatchingEmpty: document.getElementById('continueWatchingEmpty'),
+  currentWatchButton: document.getElementById('currentWatchButton'),
   searchInput: document.getElementById('searchInput'),
   tabButtons: [...document.querySelectorAll('.tab-button')],
   tabPanels: [...document.querySelectorAll('.tab-panel')],
@@ -39,6 +48,20 @@ const els = {
   heroRatingValue: document.getElementById('heroRatingValue'),
   heroPlayButton: document.getElementById('heroPlayButton')
 };
+
+function loadProgressMap() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveProgressMap() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state.progressMap));
+}
 
 function setTheme(theme) {
   state.theme = theme;
@@ -131,6 +154,58 @@ function ratingLabel(movie) {
   return value > 0 ? `${value.toFixed(1)} / 5 Sterne` : 'Noch nicht bewertet';
 }
 
+function formatTime(seconds) {
+  const total = Math.max(0, Math.floor(Number(seconds || 0)));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function getProgress(movieId) {
+  return state.progressMap[movieId] || null;
+}
+
+function getContinueWatchingItems() {
+  return Object.values(state.progressMap)
+    .filter(item => item && item.position > 60 && !item.completed)
+    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+    .slice(0, 4)
+    .map(item => ({ progress: item, movie: getMovieById(item.id) }))
+    .filter(item => item.movie);
+}
+
+function setProgress(movie, position, duration) {
+  if (!movie?.id) return;
+  const safePosition = Math.max(0, Number(position || 0));
+  const safeDuration = Math.max(0, Number(duration || 0));
+  const completed = safeDuration > 0 && safePosition / safeDuration >= 0.95;
+
+  if (completed || safePosition < 60) {
+    delete state.progressMap[movie.id];
+  } else {
+    state.progressMap[movie.id] = {
+      id: movie.id,
+      title: movie.title,
+      cover: movie.cover,
+      video: movie.video,
+      position: safePosition,
+      duration: safeDuration,
+      updatedAt: Date.now(),
+      completed: false
+    };
+  }
+  saveProgressMap();
+  renderContinueWatching();
+}
+
+function removeProgress(movieId) {
+  delete state.progressMap[movieId];
+  saveProgressMap();
+  renderContinueWatching();
+}
+
 function createImage(movie) {
   const img = document.createElement('img');
   img.className = 'movie-cover';
@@ -142,20 +217,6 @@ function createImage(movie) {
     img.src = fallbackCover(movie.title);
   }, { once: true });
   return img;
-}
-
-function createStarsDisplay(value) {
-  const wrap = document.createElement('div');
-  wrap.className = 'stars-display';
-  for (let i = 1; i <= 5; i += 1) {
-    const fill = Math.max(0, Math.min(1, value - (i - 1)));
-    const star = document.createElement('div');
-    star.className = 'rating-star';
-    star.setAttribute('aria-hidden', 'true');
-    star.innerHTML = `<span class="star-base">★</span><span class="star-fill" style="--fill:${fill * 100}%">★</span>`;
-    wrap.appendChild(star);
-  }
-  return wrap;
 }
 
 function renderStats() {
@@ -183,7 +244,19 @@ function destroyPlayer() {
   els.player.load();
 }
 
-function loadPlayer(movie, autoplay = false) {
+function seekToProgressIfNeeded(movie) {
+  const progress = getProgress(movie.id);
+  if (!progress || state.restoringProgressFor !== movie.id) return;
+  const target = Math.min(progress.position || 0, Math.max(0, (els.player.duration || progress.duration || 0) - 5));
+  if (target > 0) {
+    try {
+      els.player.currentTime = target;
+    } catch {}
+  }
+  state.restoringProgressFor = null;
+}
+
+function loadPlayer(movie, autoplay = false, resume = false) {
   if (!movie?.video) {
     destroyPlayer();
     return;
@@ -191,6 +264,7 @@ function loadPlayer(movie, autoplay = false) {
   if (state.selectedMovie?.id !== movie.id) {
     state.selectedMovie = movie;
   }
+  state.restoringProgressFor = resume ? movie.id : null;
   const src = movie.video;
   destroyPlayer();
   if (src.endsWith('.m3u8') && window.Hls?.isSupported()) {
@@ -198,11 +272,17 @@ function loadPlayer(movie, autoplay = false) {
     state.hls.loadSource(src);
     state.hls.attachMedia(els.player);
     state.hls.on(Hls.Events.MANIFEST_PARSED, () => {
+      seekToProgressIfNeeded(movie);
       if (autoplay) els.player.play().catch(() => {});
     });
   } else {
     els.player.src = src;
-    if (autoplay) els.player.play().catch(() => {});
+    const onLoaded = () => {
+      seekToProgressIfNeeded(movie);
+      if (autoplay) els.player.play().catch(() => {});
+      els.player.removeEventListener('loadedmetadata', onLoaded);
+    };
+    els.player.addEventListener('loadedmetadata', onLoaded);
   }
 }
 
@@ -249,6 +329,58 @@ function renderRatingInput(movie) {
   }
 }
 
+function renderContinueWatching() {
+  const items = getContinueWatchingItems();
+  els.continueWatchingList.replaceChildren();
+  els.continueWatchingEmpty.classList.toggle('hidden', items.length > 0);
+
+  for (const { movie, progress } of items) {
+    const button = document.createElement('button');
+    button.className = 'continue-card';
+    button.type = 'button';
+    button.setAttribute('aria-label', `${movie.title} fortsetzen bei ${formatTime(progress.position)}`);
+
+    const img = document.createElement('img');
+    img.src = movie.cover || fallbackCover(movie.title);
+    img.alt = `Poster von ${movie.title}`;
+    img.addEventListener('error', () => {
+      img.src = fallbackCover(movie.title);
+    }, { once: true });
+
+    const bar = document.createElement('div');
+    bar.className = 'continue-progress';
+    const fill = document.createElement('span');
+    fill.style.width = `${Math.max(6, Math.min(100, ((progress.position || 0) / Math.max(1, progress.duration || 1)) * 100))}%`;
+    bar.appendChild(fill);
+
+    const resumeHint = document.createElement('div');
+    resumeHint.className = 'continue-time';
+    resumeHint.textContent = formatTime(progress.position);
+
+    const removeButton = document.createElement('button');
+    removeButton.className = 'continue-remove';
+    removeButton.type = 'button';
+    removeButton.setAttribute('aria-label', `${movie.title} aus Schauen fortsetzen entfernen`);
+    removeButton.textContent = '✕';
+    removeButton.addEventListener('click', event => {
+      event.stopPropagation();
+      removeProgress(movie.id);
+      if (state.selectedMovie?.id === movie.id && !getProgress(movie.id)) renderHero();
+    });
+
+    button.append(img, bar, resumeHint, removeButton);
+    button.addEventListener('click', () => {
+      state.selectedMovie = movie;
+      renderHero();
+      renderCollections();
+      renderRanking();
+      loadPlayer(movie, true, true);
+      els.player.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+    els.continueWatchingList.appendChild(button);
+  }
+}
+
 function renderHero() {
   const movie = state.selectedMovie || state.movies[0] || null;
   state.selectedMovie = movie;
@@ -259,6 +391,7 @@ function renderHero() {
     els.heroRatingValue.textContent = 'Nicht bewertet';
     els.heroPlayButton.disabled = true;
     destroyPlayer();
+    renderContinueWatching();
     return;
   }
   els.heroCover.src = movie.cover || fallbackCover(movie.title);
@@ -266,7 +399,8 @@ function renderHero() {
   els.heroPlayButton.disabled = false;
   els.heroRatingValue.textContent = ratingLabel(movie);
   renderRatingInput(movie);
-  loadPlayer(movie, false);
+  loadPlayer(movie, false, false);
+  renderContinueWatching();
 }
 
 function movieCard(movie, isFavorite, mode = 'default') {
@@ -403,6 +537,14 @@ async function toggleFavorite(movie) {
   renderRanking();
 }
 
+function syncPlayerProgress(force = false) {
+  if (state.suppressProgressWrite) return;
+  const movie = state.selectedMovie;
+  if (!movie || !els.player || !Number.isFinite(els.player.currentTime)) return;
+  if (!force && els.player.currentTime < 60) return;
+  setProgress(movie, els.player.currentTime, els.player.duration || 0);
+}
+
 async function loadData() {
   const [movies, favorites, wishlist, ratings] = await Promise.all([
     safeApi('/api/movies', []),
@@ -428,6 +570,7 @@ async function loadData() {
   renderCollections();
   renderRanking();
   renderWishlist();
+  renderContinueWatching();
 }
 
 function bindEvents() {
@@ -447,7 +590,13 @@ function bindEvents() {
   });
   els.heroPlayButton.addEventListener('click', () => {
     if (!state.selectedMovie) return;
-    loadPlayer(state.selectedMovie, true);
+    const resume = Boolean(getProgress(state.selectedMovie.id));
+    loadPlayer(state.selectedMovie, true, resume);
+  });
+  els.currentWatchButton.addEventListener('click', () => {
+    if (!state.selectedMovie) return;
+    const resume = Boolean(getProgress(state.selectedMovie.id));
+    loadPlayer(state.selectedMovie, true, resume);
   });
   els.openWishlistForm.addEventListener('click', () => {
     els.wishlistForm.classList.remove('hidden');
@@ -474,6 +623,21 @@ function bindEvents() {
     renderStats();
     renderWishlist();
   });
+
+  els.player.addEventListener('timeupdate', () => {
+    if (state.progressSaveTimer) return;
+    state.progressSaveTimer = window.setTimeout(() => {
+      state.progressSaveTimer = null;
+      syncPlayerProgress(false);
+    }, 1800);
+  });
+  els.player.addEventListener('pause', () => syncPlayerProgress(true));
+  els.player.addEventListener('ended', () => {
+    if (state.selectedMovie) removeProgress(state.selectedMovie.id);
+  });
+  els.player.addEventListener('loadedmetadata', () => {
+    if (state.selectedMovie) seekToProgressIfNeeded(state.selectedMovie);
+  });
 }
 
 setTheme(state.theme);
@@ -486,4 +650,5 @@ loadData().catch(error => {
   renderCollections();
   renderRanking();
   renderWishlist();
+  renderContinueWatching();
 });

@@ -49,18 +49,34 @@
           </div>
           <button id="heroPlayButton" class="primary-button" type="button">▶ Abspielen</button>
         </div>
+
         <div class="inline-player-frame">
           <video id="player" controls playsinline preload="metadata"></video>
         </div>
-        <div class="hero-footer">
-          <div class="hero-cover-mini">
-            <img id="heroCover" alt="Cover des ausgewählten Films" loading="lazy" decoding="async" />
-          </div>
-          <div class="hero-meta">
+
+        <div class="hero-footer hero-watch-row">
+          <section class="current-watch-block">
+            <p class="panel-label">Wird aktuell geschaut</p>
+            <button id="currentWatchButton" class="current-watch-card" type="button" aria-label="Aktuell ausgewählten Film erneut auswählen">
+              <img id="heroCover" alt="Cover des ausgewählten Films" loading="lazy" decoding="async" />
+            </button>
+          </section>
+
+          <div class="watch-divider" aria-hidden="true"></div>
+
+          <section class="continue-watch-block">
+            <div class="continue-watch-head">
+              <p class="panel-label">Schauen fortsetzen</p>
+            </div>
+            <div id="continueWatchingList" class="continue-watch-list"></div>
+            <div id="continueWatchingEmpty" class="continue-watch-empty hidden">Noch keine Filme zum Fortsetzen.</div>
+          </section>
+
+          <section class="hero-meta rating-panel">
             <p class="panel-label">Bewertung</p>
             <div id="heroRatingStars" class="stars-input" aria-label="Film bewerten"></div>
             <p id="heroRatingValue" class="rating-value">Nicht bewertet</p>
-          </div>
+          </section>
         </div>
       </div>
     </section>
