@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CineHome</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css" />
+  <script defer src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Zum Inhalt springen</a>
+
+  <header class="site-header">
+    <div class="brand-wrap">
+      <div class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 48 48" role="img" aria-label="CineHome Logo">
+          <rect x="6" y="8" width="36" height="32" rx="10" fill="currentColor" opacity="0.14"></rect>
+          <path d="M16 14h16c4.418 0 8 3.582 8 8v4c0 4.418-3.582 8-8 8H16c-4.418 0-8-3.582-8-8v-4c0-4.418 3.582-8 8-8Z" stroke="currentColor" stroke-width="2.5" fill="none"></path>
+          <path d="M21 20.5 30 24l-9 3.5v-7Z" fill="currentColor"></path>
+        </svg>
+      </div>
+
+      <div class="brand-copy">
+        <p class="eyebrow">Private Filmsammlung</p>
+        <div class="brand-row">
+          <h1>CineHome</h1>
+          <div class="header-stats" aria-label="Statistik">
+            <article class="stat-pill">
+              <span>Filmanzahl</span>
+              <strong id="statAll">0</strong>
+            </article>
+            <article class="stat-pill">
+              <span>Favoriten</span>
+              <strong id="statFavorites">0</strong>
+            </article>
+            <article class="stat-pill">
+              <span>Wunschliste</span>
+              <strong id="statWishlist">0</strong>
+            </article>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="header-actions">
+      <label class="search-wrap" for="searchInput">
+        <span class="sr-only">Filme suchen</span>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.5 4a6.5 6.5 0 1 0 4.03 11.6l4.43 4.44 1.41-1.42-4.43-4.43A6.5 6.5 0 0 0 10.5 4Zm0 2a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9Z" fill="currentColor"/></svg>
+        <input id="searchInput" type="search" placeholder="Film suchen" autocomplete="off" />
+      </label>
+      <button type="button" class="theme-toggle" data-theme-toggle aria-label="Darstellung wechseln"></button>
+    </div>
+  </header>
+
+  <main id="main-content" class="page-shell">
+    <section class="hero-card" aria-labelledby="hero-title">
+      <div class="hero-copy-wrap">
+        <p class="hero-kicker">Lokal gehostet auf deinem Raspberry Pi</p>
+        <h2 id="hero-title">Filme sauber anzeigen, schnell abspielen und leichter verwalten.</h2>
+        <p class="hero-copy">Die Oberfläche ist bewusst klar gehalten: eine schöne Filmübersicht, schnelle Suche, Favoriten, Wunschliste und ein stabiler Player ohne chaotisches Layout.</p>
+      </div>
+      <div class="hero-highlight" id="heroHighlight" aria-live="polite">
+        <div class="hero-highlight-cover">
+          <img id="heroCover" alt="Ausgewähltes Filmcover" />
+        </div>
+        <div class="hero-highlight-meta">
+          <p class="hero-highlight-label">Ausgewählt</p>
+          <h3 id="heroMovieTitle">Noch kein Film geladen</h3>
+          <div class="hero-rating-row">
+            <div class="stars" id="heroRatingStars" aria-label="Bewertung"></div>
+            <span id="heroRatingValue" class="rating-value">Nicht bewertet</span>
+          </div>
+          <button id="heroPlayButton" class="primary-button" type="button">▶ Film abspielen</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="toolbar-card" aria-label="Filter und Bereiche">
+      <nav class="tab-bar" aria-label="Bereiche">
+        <button class="tab-button is-active" data-tab-target="movies" type="button">Alle Filme</button>
+        <button class="tab-button" data-tab-target="favorites" type="button">Favoriten</button>
+        <button class="tab-button" data-tab-target="wishlist" type="button">Wunschliste</button>
+      </nav>
+    </section>
+
+    <section class="tab-panel is-active" id="tab-movies" aria-labelledby="Alle Filme">
+      <div class="section-head">
+        <div>
+          <h3>Alle Filme</h3>
+          <p>Alle gefundenen Filme aus deinem Filmordner.</p>
+        </div>
+      </div>
+      <div id="moviesGrid" class="movie-grid" aria-live="polite"></div>
+      <div id="moviesEmpty" class="empty-state hidden">
+        <h3>Keine Filme gefunden</h3>
+        <p>Prüfe den Ordnerpfad, Dateinamen oder den API-Dienst.</p>
+      </div>
+    </section>
+
+    <section class="tab-panel" id="tab-favorites" aria-labelledby="Favoriten">
+      <div class="section-head">
+        <div>
+          <h3>Favoriten</h3>
+          <p>Mit dem Stern markierte Filme erscheinen hier.</p>
+        </div>
+      </div>
+      <div id="favoritesGrid" class="movie-grid" aria-live="polite"></div>
+      <div id="favoritesEmpty" class="empty-state hidden">
+        <h3>Noch keine Favoriten</h3>
+        <p>Markiere einen Film mit dem Stern, dann erscheint er hier.</p>
+      </div>
+    </section>
+
+    <section class="tab-panel" id="tab-wishlist" aria-labelledby="Wunschliste">
+      <div class="section-head section-head-split">
+        <div>
+          <h3>Wunschliste</h3>
+          <p>Filme eintragen, die du später hinzufügen oder ansehen möchtest.</p>
+        </div>
+        <button id="openWishlistForm" class="primary-button" type="button">+ Wunschfilm</button>
+      </div>
+
+      <form id="wishlistForm" class="wishlist-form hidden" autocomplete="off">
+        <div class="form-row">
+          <label>
+            <span>Titel</span>
+            <input id="wishlistTitle" name="title" type="text" maxlength="120" required />
+          </label>
+          <label>
+            <span>Jahr</span>
+            <input id="wishlistYear" name="year" type="number" min="1888" max="2100" placeholder="z. B. 2024" />
+          </label>
+        </div>
+        <label>
+          <span>Notiz</span>
+          <textarea id="wishlistNote" name="note" rows="3" maxlength="400" placeholder="Warum möchtest du diesen Film?"></textarea>
+        </label>
+        <div class="form-actions">
+          <button class="primary-button" type="submit">Speichern</button>
+          <button id="cancelWishlistForm" class="secondary-button" type="button">Abbrechen</button>
+        </div>
+      </form>
+
+      <div id="wishlistList" class="wishlist-list" aria-live="polite"></div>
+      <div id="wishlistEmpty" class="empty-state hidden">
+        <h3>Deine Wunschliste ist leer</h3>
+        <p>Mit dem Plus kannst du Titel, Jahr und eine Notiz hinzufügen.</p>
+      </div>
+    </section>
+  </main>
+
+  <div id="playerModal" class="player-modal hidden" role="dialog" aria-modal="true" aria-labelledby="playerTitle">
+    <div class="player-dialog">
+      <div class="player-head">
+        <div>
+          <p class="player-kicker">Jetzt ansehen</p>
+          <h3 id="playerTitle">Film abspielen</h3>
+        </div>
+        <button id="closePlayer" type="button" class="icon-button" aria-label="Player schließen">×</button>
+      </div>
+      <div class="player-video-wrap">
+        <video id="player" controls playsinline preload="metadata"></video>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
