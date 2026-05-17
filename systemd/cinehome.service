@@ -1,0 +1,14 @@
+[Unit]
+Description=CineHome Flask API
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/opt/cinehome
+ExecStart=/usr/bin/python3 /opt/cinehome/api.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
