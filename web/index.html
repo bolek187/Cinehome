@@ -85,6 +85,7 @@
       <div class="toolbar-row">
         <div class="tab-bar" role="tablist" aria-label="Bereiche">
           <button class="tab-button is-active" data-tab-target="movies" type="button">Alle Filme</button>
+          <button class="tab-button" data-tab-target="sorted" type="button">Filme sortiert</button>
           <button class="tab-button" data-tab-target="ranking" type="button">Rangliste</button>
           <button class="tab-button" data-tab-target="favorites" type="button">Favoriten</button>
           <button class="tab-button" data-tab-target="wishlist" type="button">Wunschliste</button>
@@ -108,6 +109,18 @@
       </div>
       <div id="moviesEmpty" class="empty-state hidden"><h3>Keine Filme gefunden</h3><p>Prüfe den Filmordner oder die Suche.</p></div>
       <div id="moviesGrid" class="movie-grid"></div>
+    </section>
+
+    <section id="tab-sorted" class="tab-panel">
+      <div class="section-head-split">
+        <div>
+          <h3>Filme sortiert</h3>
+          <p>Eigene Kategorien mit Farbe und mehreren Filmen pro Bereich.</p>
+        </div>
+        <button id="openCategoryForm" class="primary-button" type="button">＋ Kategorie erstellen</button>
+      </div>
+      <div id="sortedEmpty" class="empty-state hidden"><h3>Noch keine Kategorien</h3><p>Lege rechts oben eine Kategorie mit Farbe und Filmauswahl an.</p></div>
+      <div id="categoriesList" class="category-stack"></div>
     </section>
 
     <section id="tab-ranking" class="tab-panel">
@@ -166,5 +179,45 @@
       <div id="wishlistList" class="wishlist-list"></div>
     </section>
   </main>
+
+  <div id="categoryModal" class="modal-backdrop hidden" aria-hidden="true">
+    <div class="modal-card">
+      <div class="modal-head">
+        <div>
+          <p class="panel-label">Neue Kategorie</p>
+          <h3>Kategorie erstellen</h3>
+        </div>
+        <button id="closeCategoryForm" class="theme-toggle" type="button" aria-label="Kategorie-Dialog schließen">✕</button>
+      </div>
+
+      <form id="categoryForm" class="category-form">
+        <div class="form-row form-row-tight">
+          <label>
+            <span>Name</span>
+            <input id="categoryName" type="text" placeholder="z. B. Marvel" required />
+          </label>
+          <label>
+            <span>Farbe</span>
+            <input id="categoryColor" class="color-input" type="color" value="#ffd54a" />
+          </label>
+        </div>
+
+        <div class="category-picker-head">
+          <div>
+            <strong>Filme auswählen</strong>
+            <p>Du kannst mehrere Filme gleichzeitig markieren.</p>
+          </div>
+          <button id="clearCategorySelection" class="secondary-button" type="button">Auswahl leeren</button>
+        </div>
+
+        <div id="categoryMoviePicker" class="category-movie-picker"></div>
+
+        <div class="form-actions">
+          <button id="cancelCategoryForm" class="secondary-button" type="button">Abbrechen</button>
+          <button class="primary-button" type="submit">Kategorie speichern</button>
+        </div>
+      </form>
+    </div>
+  </div>
 </body>
 </html>

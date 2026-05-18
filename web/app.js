@@ -5,6 +5,7 @@ const state = {
   favorites: [],
   wishlist: [],
   ratings: {},
+  categories: [],
   activeTab: 'movies',
   search: '',
   theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
@@ -12,8 +13,7 @@ const state = {
   hls: null,
   progressMap: loadProgressMap(),
   restoringProgressFor: null,
-  progressSaveTimer: null,
-  suppressProgressWrite: false
+  progressSaveTimer: null
 };
 
 const els = {
@@ -21,7 +21,10 @@ const els = {
   rankingGrid: document.getElementById('rankingGrid'),
   favoritesGrid: document.getElementById('favoritesGrid'),
   wishlistList: document.getElementById('wishlistList'),
+  categoriesList: document.getElementById('categoriesList'),
+  categoryMoviePicker: document.getElementById('categoryMoviePicker'),
   moviesEmpty: document.getElementById('moviesEmpty'),
+  sortedEmpty: document.getElementById('sortedEmpty'),
   rankingEmpty: document.getElementById('rankingEmpty'),
   favoritesEmpty: document.getElementById('favoritesEmpty'),
   wishlistEmpty: document.getElementById('wishlistEmpty'),
@@ -38,6 +41,14 @@ const els = {
   wishlistTitle: document.getElementById('wishlistTitle'),
   wishlistYear: document.getElementById('wishlistYear'),
   wishlistNote: document.getElementById('wishlistNote'),
+  openCategoryForm: document.getElementById('openCategoryForm'),
+  categoryModal: document.getElementById('categoryModal'),
+  closeCategoryForm: document.getElementById('closeCategoryForm'),
+  cancelCategoryForm: document.getElementById('cancelCategoryForm'),
+  clearCategorySelection: document.getElementById('clearCategorySelection'),
+  categoryForm: document.getElementById('categoryForm'),
+  categoryName: document.getElementById('categoryName'),
+  categoryColor: document.getElementById('categoryColor'),
   themeToggle: document.querySelector('[data-theme-toggle]'),
   statAll: document.getElementById('statAll'),
   statFavorites: document.getElementById('statFavorites'),
@@ -106,6 +117,15 @@ function normalizeMovie(movie) {
     video: movie.video || '',
     cover: movie.cover || fallbackCover(movie.title),
     rating: Number(movie.rating || 0)
+  };
+}
+
+function normalizeCategory(category) {
+  return {
+    id: category.id || crypto.randomUUID(),
+    name: String(category.name || 'Kategorie').trim(),
+    color: String(category.color || '#ffd54a'),
+    movieIds: Array.from(new Set((category.movieIds || category.movie_ids || []).map(String)))
   };
 }
 
@@ -181,7 +201,6 @@ function setProgress(movie, position, duration) {
   const safePosition = Math.max(0, Number(position || 0));
   const safeDuration = Math.max(0, Number(duration || 0));
   const completed = safeDuration > 0 && safePosition / safeDuration >= 0.95;
-
   if (completed || safePosition < 60) {
     delete state.progressMap[movie.id];
   } else {
@@ -217,6 +236,19 @@ function createImage(movie) {
     img.src = fallbackCover(movie.title);
   }, { once: true });
   return img;
+}
+
+function createStarsDisplay(value) {
+  const wrap = document.createElement('div');
+  wrap.className = 'stars-display';
+  for (let i = 1; i <= 5; i += 1) {
+    const star = document.createElement('div');
+    star.className = 'rating-star is-static';
+    const fill = Math.max(0, Math.min(1, value - (i - 1)));
+    star.innerHTML = `<span class="star-base">★</span><span class="star-fill" style="--fill:${fill * 100}%">★</span>`;
+    wrap.appendChild(star);
+  }
+  return wrap;
 }
 
 function renderStats() {
@@ -267,6 +299,7 @@ function loadPlayer(movie, autoplay = false, resume = false) {
   state.restoringProgressFor = resume ? movie.id : null;
   const src = movie.video;
   destroyPlayer();
+
   if (src.endsWith('.m3u8') && window.Hls?.isSupported()) {
     state.hls = new Hls();
     state.hls.loadSource(src);
@@ -276,13 +309,13 @@ function loadPlayer(movie, autoplay = false, resume = false) {
       if (autoplay) els.player.play().catch(() => {});
     });
   } else {
-    els.player.src = src;
     const onLoaded = () => {
       seekToProgressIfNeeded(movie);
       if (autoplay) els.player.play().catch(() => {});
       els.player.removeEventListener('loadedmetadata', onLoaded);
     };
     els.player.addEventListener('loadedmetadata', onLoaded);
+    els.player.src = src;
   }
 }
 
@@ -293,7 +326,6 @@ function renderRatingInput(movie) {
     const button = document.createElement('button');
     button.className = 'rating-star';
     button.type = 'button';
-    button.dataset.value = String(i);
     button.setAttribute('aria-label', `${i} Sterne setzen`);
     const fill = Math.max(0, Math.min(1, current - (i - 1)));
     button.innerHTML = `<span class="star-base">★</span><span class="star-fill" style="--fill:${fill * 100}%">★</span>`;
@@ -324,6 +356,7 @@ function renderRatingInput(movie) {
       renderHero();
       renderCollections();
       renderRanking();
+      renderCategories();
     });
     els.heroRatingStars.appendChild(button);
   }
@@ -353,9 +386,9 @@ function renderContinueWatching() {
     fill.style.width = `${Math.max(6, Math.min(100, ((progress.position || 0) / Math.max(1, progress.duration || 1)) * 100))}%`;
     bar.appendChild(fill);
 
-    const resumeHint = document.createElement('div');
-    resumeHint.className = 'continue-time';
-    resumeHint.textContent = formatTime(progress.position);
+    const time = document.createElement('div');
+    time.className = 'continue-time';
+    time.textContent = formatTime(progress.position);
 
     const removeButton = document.createElement('button');
     removeButton.className = 'continue-remove';
@@ -365,18 +398,19 @@ function renderContinueWatching() {
     removeButton.addEventListener('click', event => {
       event.stopPropagation();
       removeProgress(movie.id);
-      if (state.selectedMovie?.id === movie.id && !getProgress(movie.id)) renderHero();
     });
 
-    button.append(img, bar, resumeHint, removeButton);
+    button.append(img, bar, time, removeButton);
     button.addEventListener('click', () => {
       state.selectedMovie = movie;
       renderHero();
       renderCollections();
       renderRanking();
+      renderCategories();
       loadPlayer(movie, true, true);
       els.player.scrollIntoView({ behavior: 'smooth', block: 'center' });
     });
+
     els.continueWatchingList.appendChild(button);
   }
 }
@@ -415,30 +449,40 @@ function movieCard(movie, isFavorite, mode = 'default') {
   const wrap = document.createElement('div');
   wrap.className = 'movie-cover-wrap';
   wrap.appendChild(createImage(movie));
+
   const overlay = document.createElement('div');
   overlay.className = 'movie-overlay';
   overlay.textContent = '▶ Im oberen Player öffnen';
   wrap.appendChild(overlay);
 
+  const progress = getProgress(movie.id);
+  if (progress) {
+    const progressBar = document.createElement('div');
+    progressBar.className = 'card-progress';
+    const fill = document.createElement('span');
+    fill.style.width = `${Math.max(6, Math.min(100, ((progress.position || 0) / Math.max(1, progress.duration || 1)) * 100))}%`;
+    progressBar.appendChild(fill);
+    wrap.appendChild(progressBar);
+  }
+
   const meta = document.createElement('div');
   meta.className = 'movie-meta';
+
   const textWrap = document.createElement('div');
-  const subtitle = mode === 'ranking' ? 'Bewertet und sortiert' : 'Zum Abspielen auswählen';
-  textWrap.innerHTML = `<h4 class="movie-title"></h4><p class="movie-subtitle"></p>`;
+  const subtitle = mode === 'ranking' ? 'Bewertet und sortiert' : mode === 'category' ? 'Zur Kategorie hinzugefügt' : 'Zum Abspielen auswählen';
+  textWrap.innerHTML = '<h4 class="movie-title"></h4><p class="movie-subtitle"></p>';
   textWrap.querySelector('.movie-title').textContent = movie.title;
   textWrap.querySelector('.movie-subtitle').textContent = subtitle;
 
   const rightWrap = document.createElement('div');
-  rightWrap.style.display = 'grid';
-  rightWrap.style.gap = '.45rem';
-  rightWrap.style.justifyItems = 'end';
+  rightWrap.className = 'movie-side';
 
   const ratingChip = document.createElement('div');
   ratingChip.className = 'rating-chip';
   ratingChip.textContent = ratingLabel(movie);
   rightWrap.appendChild(ratingChip);
 
-  if (mode !== 'ranking') {
+  if (mode !== 'ranking' && mode !== 'category') {
     const favoriteButton = document.createElement('button');
     favoriteButton.className = `favorite-toggle ${isFavorite ? 'is-active' : ''}`;
     favoriteButton.type = 'button';
@@ -457,7 +501,8 @@ function movieCard(movie, isFavorite, mode = 'default') {
     state.selectedMovie = movie;
     renderHero();
     renderCollections();
-    if (state.activeTab === 'ranking') renderRanking();
+    renderRanking();
+    renderCategories();
     els.player.scrollIntoView({ behavior: 'smooth', block: 'center' });
   });
 
@@ -488,6 +533,140 @@ function renderRanking() {
     .sort((a, b) => b._stars - a._stars || a.title.localeCompare(b.title, 'de'))
     .map(movie => movieCard(movie, favoriteIds().has(movie.id), 'ranking'));
   renderCollection(els.rankingGrid, rated, els.rankingEmpty);
+}
+
+function openCategoryModal() {
+  els.categoryModal.classList.remove('hidden');
+  els.categoryModal.setAttribute('aria-hidden', 'false');
+  els.categoryName.focus();
+}
+
+function closeCategoryModal() {
+  els.categoryModal.classList.add('hidden');
+  els.categoryModal.setAttribute('aria-hidden', 'true');
+  els.categoryForm.reset();
+  els.categoryColor.value = '#ffd54a';
+  [...els.categoryMoviePicker.querySelectorAll('input[type="checkbox"]')].forEach(input => {
+    input.checked = false;
+  });
+}
+
+function renderCategoryPicker() {
+  els.categoryMoviePicker.replaceChildren();
+  const movies = [...state.movies].sort((a, b) => a.title.localeCompare(b.title, 'de'));
+  for (const movie of movies) {
+    const label = document.createElement('label');
+    label.className = 'picker-card';
+
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.value = movie.id;
+
+    const img = document.createElement('img');
+    img.src = movie.cover || fallbackCover(movie.title);
+    img.alt = `Poster von ${movie.title}`;
+    img.addEventListener('error', () => {
+      img.src = fallbackCover(movie.title);
+    }, { once: true });
+
+    const span = document.createElement('span');
+    span.textContent = movie.title;
+
+    label.append(input, img, span);
+    els.categoryMoviePicker.appendChild(label);
+  }
+}
+
+async function createCategoryFromForm() {
+  const selected = [...els.categoryMoviePicker.querySelectorAll('input:checked')].map(input => input.value);
+  const payload = {
+    name: els.categoryName.value.trim(),
+    color: els.categoryColor.value,
+    movieIds: selected
+  };
+  if (!payload.name || selected.length === 0) return;
+  const created = await api('/api/categories', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+  state.categories = [...state.categories, normalizeCategory(created)].sort((a, b) => a.name.localeCompare(b.name, 'de'));
+  renderCategories();
+  closeCategoryModal();
+}
+
+async function deleteCategory(categoryId) {
+  await api(`/api/categories/${encodeURIComponent(categoryId)}`, { method: 'DELETE' });
+  state.categories = state.categories.filter(category => category.id !== categoryId);
+  renderCategories();
+}
+
+function renderCategories() {
+  const term = state.search.trim().toLowerCase();
+  const categories = state.categories
+    .map(normalizeCategory)
+    .map(category => ({
+      ...category,
+      movies: category.movieIds
+        .map(getMovieById)
+        .filter(Boolean)
+        .filter(movie => !term || movie.title.toLowerCase().includes(term))
+    }))
+    .filter(category => category.movies.length > 0 || !term)
+    .sort((a, b) => a.name.localeCompare(b.name, 'de'));
+
+  els.categoriesList.replaceChildren();
+  els.sortedEmpty.classList.toggle('hidden', categories.length > 0);
+
+  for (const category of categories) {
+    const section = document.createElement('section');
+    section.className = 'category-section';
+    section.style.setProperty('--category-color', category.color);
+
+    const head = document.createElement('div');
+    head.className = 'category-head';
+    head.innerHTML = `
+      <div class="category-title-wrap">
+        <span class="category-dot"></span>
+        <div>
+          <h4 class="category-title"></h4>
+          <p class="category-subtitle"></p>
+        </div>
+      </div>
+    `;
+    head.querySelector('.category-title').textContent = category.name;
+    head.querySelector('.category-subtitle').textContent = `${category.movies.length} Film${category.movies.length === 1 ? '' : 'e'} in dieser Kategorie`;
+
+    const actions = document.createElement('div');
+    actions.className = 'category-actions';
+    const chip = document.createElement('span');
+    chip.className = 'category-color-chip';
+    chip.textContent = category.color;
+    const del = document.createElement('button');
+    del.className = 'category-delete';
+    del.type = 'button';
+    del.textContent = 'Kategorie löschen';
+    del.addEventListener('click', () => deleteCategory(category.id));
+    actions.append(chip, del);
+    head.appendChild(actions);
+
+    const grid = document.createElement('div');
+    grid.className = 'category-movie-grid';
+    category.movies.forEach(movie => {
+      const card = movieCard(movie, favoriteIds().has(movie.id), 'category');
+      card.classList.add('category-movie-card');
+      grid.appendChild(card);
+    });
+
+    if (category.movies.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'category-empty';
+      empty.textContent = term ? 'Keine Treffer in dieser Kategorie.' : 'Dieser Kategorie sind noch keine Filme zugeordnet.';
+      grid.appendChild(empty);
+    }
+
+    section.append(head, grid);
+    els.categoriesList.appendChild(section);
+  }
 }
 
 function renderWishlist() {
@@ -538,24 +717,25 @@ async function toggleFavorite(movie) {
 }
 
 function syncPlayerProgress(force = false) {
-  if (state.suppressProgressWrite) return;
   const movie = state.selectedMovie;
-  if (!movie || !els.player || !Number.isFinite(els.player.currentTime)) return;
+  if (!movie || !Number.isFinite(els.player.currentTime)) return;
   if (!force && els.player.currentTime < 60) return;
   setProgress(movie, els.player.currentTime, els.player.duration || 0);
 }
 
 async function loadData() {
-  const [movies, favorites, wishlist, ratings] = await Promise.all([
+  const [movies, favorites, wishlist, ratings, categories] = await Promise.all([
     safeApi('/api/movies', []),
     safeApi('/api/favorites', []),
     safeApi('/api/wishlist', []),
-    safeApi('/api/ratings', {})
+    safeApi('/api/ratings', {}),
+    safeApi('/api/categories', [])
   ]);
 
   state.movies = movies.map(normalizeMovie);
   state.favorites = Array.isArray(favorites) ? favorites : [];
   state.wishlist = Array.isArray(wishlist) ? wishlist : [];
+  state.categories = Array.isArray(categories) ? categories.map(normalizeCategory) : [];
   state.ratings = Object.fromEntries(
     Object.entries(ratings || {}).map(([key, value]) => {
       const movie = getMovieById(key) || state.movies.find(entry => entry.title === key);
@@ -566,8 +746,10 @@ async function loadData() {
   state.selectedMovie = state.movies[0] || null;
   renderStats();
   renderTabs();
+  renderCategoryPicker();
   renderHero();
   renderCollections();
+  renderCategories();
   renderRanking();
   renderWishlist();
   renderContinueWatching();
@@ -575,39 +757,46 @@ async function loadData() {
 
 function bindEvents() {
   els.themeToggle.addEventListener('click', () => setTheme(state.theme === 'dark' ? 'light' : 'dark'));
+
   els.searchInput.addEventListener('input', event => {
     state.search = event.target.value;
     renderCollections();
+    renderCategories();
     renderRanking();
     renderWishlist();
   });
+
   els.tabButtons.forEach(button => {
     button.addEventListener('click', () => {
       state.activeTab = button.dataset.tabTarget;
       renderTabs();
+      if (state.activeTab === 'sorted') renderCategories();
       if (state.activeTab === 'ranking') renderRanking();
     });
   });
+
   els.heroPlayButton.addEventListener('click', () => {
     if (!state.selectedMovie) return;
-    const resume = Boolean(getProgress(state.selectedMovie.id));
-    loadPlayer(state.selectedMovie, true, resume);
+    loadPlayer(state.selectedMovie, true, Boolean(getProgress(state.selectedMovie.id)));
   });
+
   els.currentWatchButton.addEventListener('click', () => {
     if (!state.selectedMovie) return;
-    const resume = Boolean(getProgress(state.selectedMovie.id));
-    loadPlayer(state.selectedMovie, true, resume);
+    loadPlayer(state.selectedMovie, true, Boolean(getProgress(state.selectedMovie.id)));
   });
+
   els.openWishlistForm.addEventListener('click', () => {
     els.wishlistForm.classList.remove('hidden');
     els.wishlistEmpty.classList.add('hidden');
     els.wishlistTitle.focus();
   });
+
   els.cancelWishlistForm.addEventListener('click', () => {
     els.wishlistForm.classList.add('hidden');
     els.wishlistForm.reset();
     renderWishlist();
   });
+
   els.wishlistForm.addEventListener('submit', async event => {
     event.preventDefault();
     const payload = {
@@ -622,6 +811,22 @@ function bindEvents() {
     els.wishlistForm.classList.add('hidden');
     renderStats();
     renderWishlist();
+  });
+
+  els.openCategoryForm.addEventListener('click', openCategoryModal);
+  els.closeCategoryForm.addEventListener('click', closeCategoryModal);
+  els.cancelCategoryForm.addEventListener('click', closeCategoryModal);
+  els.clearCategorySelection.addEventListener('click', () => {
+    [...els.categoryMoviePicker.querySelectorAll('input[type="checkbox"]')].forEach(input => {
+      input.checked = false;
+    });
+  });
+  els.categoryModal.addEventListener('click', event => {
+    if (event.target === els.categoryModal) closeCategoryModal();
+  });
+  els.categoryForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    await createCategoryFromForm();
   });
 
   els.player.addEventListener('timeupdate', () => {
@@ -644,11 +849,4 @@ setTheme(state.theme);
 bindEvents();
 loadData().catch(error => {
   console.error('CineHome konnte nicht geladen werden:', error);
-  renderStats();
-  renderTabs();
-  renderHero();
-  renderCollections();
-  renderRanking();
-  renderWishlist();
-  renderContinueWatching();
 });
